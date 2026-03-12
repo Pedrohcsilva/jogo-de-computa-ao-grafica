@@ -25,6 +25,7 @@ from src.score         import GerenciadorScore
 from src.poder_especial import GerenciadorPoderEspecial
 from src.sound         import GerenciadorSom
 from src.menu_principal import MenuPrincipal
+from src.persistence   import SistemaPeristencia
 
 from src.sprites.player  import Jogador
 from src.sprites.enemies import (InimigoBase, InimigoRapido, InimigoTank,
@@ -198,6 +199,46 @@ class Game:
         self._tempo_jogando_ms  = 0
         self._ultimo_tick_ms    = pygame.time.get_ticks()
 
+    def _salvar_jogo(self):
+        """Salva o estado atual do jogo."""
+        dados_jogo = {
+            "fase": self.fase,
+            "hp_jogador": self.player.hp,
+            "hp_max": self.player.hp_max,
+            "arma_equipada": self.player.tipo_arma if hasattr(self.player, 'tipo_arma') else "pistola",
+            "upgrades": list(self.menu_up.upgrades_adquiridos),
+            "score": self.score.score_atual,
+            "combo": self.score.combo,
+            "xp_atual": self.player.xp if hasattr(self.player, 'xp') else 0,
+            "timestamp": pygame.time.get_ticks(),
+        }
+        SistemaPeristencia.salvar_jogo(dados_jogo)
+    
+    def _carregar_jogo(self):
+        """Carrega um save do jogo."""
+        dados = SistemaPeristencia.carregar_jogo()
+        if not dados:
+            print("Erro ao carregar save, iniciando novo jogo...")
+            return
+        
+        # Restaurar estado
+        self.reset_total()
+        self.fase = dados.get("fase", 1)
+        self.ondas.iniciar_fase(self.fase)
+        self._gerar_bio_fase(self.fase)
+        self.player.hp = dados.get("hp_jogador", self.player.hp_max)
+        self.player.hp_max = dados.get("hp_max", HP_MAX)
+        self.menu_up.upgrades_adquiridos = set(dados.get("upgrades", []))
+        self.score.score_atual = dados.get("score", 0)
+        self.score.combo = dados.get("combo", 0)
+        
+        # Aplicar upgrades ao jogador se houver
+        if hasattr(self.menu_up, 'upgrades_adquiridos'):
+            for upgrade_id in self.menu_up.upgrades_adquiridos:
+                self.menu_up._aplicar_upgrade(upgrade_id, self.player)
+        
+        print(f"✓ Jogo restaurado da Fase {self.fase}")
+
     # ═══════════════════════════════════════════════════════════════
     #  EVENTOS
     # ═══════════════════════════════════════════════════════════════
@@ -214,6 +255,9 @@ class Game:
                     self.rodando = False
                 elif acao == "jogar":
                     pass   # menu.ativo já foi setado False dentro do menu
+                elif acao == "continuar":
+                    self._carregar_jogo()
+                    # menu.ativo já foi setado False dentro do menu
                 continue    # bloqueia o resto do loop de eventos
 
             if evento.type == pygame.KEYDOWN:
@@ -229,6 +273,7 @@ class Game:
                         self.estado = "jogando"
                         self.reset_total()
                     elif evento.key == pygame.K_m:
+                        self._salvar_jogo()  # Salva antes de voltar ao menu
                         self.estado = "jogando"
                         self.reset_total()
                         self.menu.ativo = True

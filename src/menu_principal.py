@@ -22,6 +22,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import *
+from src.persistence import SistemaPeristencia
 
 
 class MenuPrincipal:
@@ -60,9 +61,16 @@ class MenuPrincipal:
         # Itens do menu
         self._itens = [
             {"label": "▶  JOGAR",      "acao": "jogar"},
+        ]
+        
+        # Adiciona "Continuar" se houver save
+        if SistemaPeristencia.existe_save():
+            self._itens.insert(0, {"label": "↻  CONTINUAR", "acao": "continuar"})
+        
+        self._itens.extend([
             {"label": "⌨  CONTROLES",  "acao": "controles"},
             {"label": "✕  SAIR",        "acao": "sair"},
-        ]
+        ])
         self._selecionado = 0
 
     # ── API pública ───────────────────────────────────────────────────
@@ -113,6 +121,9 @@ class MenuPrincipal:
         if acao == "jogar":
             self.ativo = False
             return "jogar"
+        elif acao == "continuar":
+            self.ativo = False
+            return "continuar"
         elif acao == "controles":
             self._estado = "controles"
             return None
