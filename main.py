@@ -28,6 +28,7 @@ from src.menu_principal import MenuPrincipal
 from src.persistence   import SistemaPeristencia
 from src.controls      import ControladorEntrada
 from src.pause_menu    import MenuPausa
+from src.ui_components import BarraHP, BarraProgressao, ContadorTexto, PainelInfo
 
 from src.sprites.player  import Jogador
 from src.sprites.enemies import (InimigoBase, InimigoRapido, InimigoTank,
@@ -64,6 +65,12 @@ class Game:
         self.menu          = MenuPrincipal(LARGURA, ALTURA)   # ← tela de título
         self.menu_pausa    = MenuPausa(LARGURA, ALTURA)       # ← menu de pausa
         self.controles     = ControladorEntrada()  # ← controle (teclado + gamepad)
+        
+        # Componentes de UI
+        self.barra_hp      = BarraHP(30, 28)
+        self.barra_xp      = BarraProgressao(30, 28 + 20 + 4, 260, 8, (30, 30, 40), XP_COLOR)
+        self.contador_combo = ContadorTexto(LARGURA - 100, 60, 28)
+        
         self._poder_aviso_timer = 0
         self._poder_aviso_nome  = ""
 
@@ -995,30 +1002,17 @@ class Game:
                                        (px - nr//3, py - nr//3), max(1, nr//4))
 
     def _desenhar_hud(self):
-        BAR_W, BAR_H = 260, 20
-        x, y = 30, 28
-
-        # ── Barra de HP com camada delayed ────────────────────────────────
-        pygame.draw.rect(self.tela, (40, 40, 50), (x, y, BAR_W, BAR_H), border_radius=5)
-        larg_delayed = max(0, (self.player._hp_delayed / self.player.hp_max) * BAR_W)
-        pygame.draw.rect(self.tela, (200, 160, 0),
-                         (x, y, int(larg_delayed), BAR_H), border_radius=5)
-        cor_hp  = VERDE if self.player.hp > self.player.hp_max * 0.3 else VERMELHO
-        larg_hp = max(0, (self.player.hp / self.player.hp_max) * BAR_W)
-        pygame.draw.rect(self.tela, cor_hp,
-                         (x, y, int(larg_hp), BAR_H), border_radius=5)
-        # Indicador de escudo passivo pronto
-        if getattr(self.player, "escudo_passivo", False):
-            cor_esc = (50, 120, 255) if getattr(self.player, "escudo_pronto", False) else (30, 50, 100)
-            pygame.draw.rect(self.tela, cor_esc, (x + BAR_W + 6, y, 6, BAR_H), border_radius=3)
-        pygame.draw.rect(self.tela, BRANCO, (x, y, BAR_W, BAR_H), width=1, border_radius=5)
-        txt_hp = self.fonte.render(f"{self.player.hp} / {self.player.hp_max}", True, BRANCO)
-        self.tela.blit(txt_hp, txt_hp.get_rect(midleft=(x + 6, y + BAR_H // 2)))
-
-        # ── Barra de XP ───────────────────────────────────────────────────
-        xp_pct = self.player.xp / self.player.xp_proximo_nivel
-        pygame.draw.rect(self.tela, (30, 30, 40),     (x, y + BAR_H + 4, BAR_W, 8), border_radius=3)
-        pygame.draw.rect(self.tela, XP_COLOR,          (x, y + BAR_H + 4, int(BAR_W * xp_pct), 8), border_radius=3)
+        # ── Atualizar componentes de UI ───────────────────────────────
+        self.barra_hp.atualizar(self.player.hp, self.player.hp_max)
+        xp_pct = self.player.xp / self.player.xp_proximo_nivel if self.player.xp_proximo_nivel > 0 else 0
+        self.barra_xp.atualizar(xp_pct)
+        self.contador_combo.atualizar(self.score.combo)
+        
+        # ── Desenhar barra de HP ──────────────────────────────────────
+        self.barra_hp.desenhar(self.tela)
+        
+        # ── Desenhar barra de XP ──────────────────────────────────────
+        self.barra_xp.desenhar(self.tela)
 
         # ── Barra de Progresso de Fases ──────────────────────────────────
         prog_w = 300
@@ -1038,12 +1032,27 @@ class Game:
         self.tela.blit(txt_prog, txt_prog.get_rect(center=(LARGURA // 2, prog_y - 12)))
 
         # ── Informações de status ─────────────────────────────────────────
-        info = (f"VIDAS: {self.vidas}  |  "
-                f"NÍV: {self.player.nivel}  |  ARMA: {self.player.tipo_arma}")
-        self.tela.blit(self.fonte.render(info, True, BRANCO), (x, y + BAR_H + 17))
+        info = (f"❤ VIDAS: {self.vidas}  |  "
+                f"⬆ NÍV: {self.player.nivel}  |  ✧ ARMA: {self.player.tipo_arma}")
+        self.tela.blit(self.fonte.render(info, True, BRANCO), (30, 28 + 20 + 4 + 8 + 8))
 
-        # ── Score / Combo ─────────────────────────────────────────────────
-        self.score.desenhar_hud(self.tela, LARGURA - 20, 20)
+        # ── Score / Combo (desenhar contador animado) ──────────────────────
+        txt_score = self.fonte_md.render(f"SCORE: {self.score.score_atual:,}", True, (200, 200, 0))
+        self.tela.blit(txt_score, (LARGURA - txt_score.get_width() - 20, 20))
+        
+        # ── Combo com cor dinâmica ────────────────────────────────────────
+        if self.score.combo > 0:
+            if self.score.combo <= 4:
+                cor_combo = AZUL_TIRO
+            elif self.score.combo <= 9:
+                cor_combo = VERDE
+            elif self.score.combo <= 19:
+                cor_combo = AMARELO
+            else:
+                cor_combo = VERMELHO
+            
+            txt_combo = self.fonte_md.render(f"☠ COMBO x{self.score.combo}", True, cor_combo)
+            self.tela.blit(txt_combo, (LARGURA - txt_combo.get_width() - 20, 60))
 
         # ── Respiro entre ondas ───────────────────────────────────────────
         if self.ondas.em_respiro:
@@ -1057,7 +1066,8 @@ class Game:
             self._desenhar_tutorial()
 
         # ── Teclas de ajuda ───────────────────────────────────────────────
-        ajuda = self.fonte.render("ESC = Pausar  |  Q = Sair", True, CINZA)
+        help_text = "🎮 ESC=Pausa | ESPAÇO=Poder Especial"
+        ajuda = self.fonte.render(help_text, True, CINZA)
         self.tela.blit(ajuda, (LARGURA - ajuda.get_width() - 20, ALTURA - 50))
 
         # ── Aviso de fase ─────────────────────────────────────────────────
