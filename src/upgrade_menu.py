@@ -129,6 +129,8 @@ class MenuUpgrade:
         self.opcoes   = []
         self.ativo    = False
         self._upgrades_adquiridos: set[str] = set()
+        self._selecionado = -1
+        self._card_rects: list = []
 
     def sortear(self, jogador=None):
         """
@@ -150,21 +152,44 @@ class MenuUpgrade:
         self.ativo  = True
 
     def processar_evento(self, evento, jogador):
-        """Retorna True se o upgrade foi escolhido."""
+        """Retorna True se o upgrade foi escolhido (teclado 1/2/3 ou clique no card)."""
         if not self.ativo:
             return False
 
+        # ── Teclado ──────────────────────────────────────────────────
         mapa = {pygame.K_1: 0, pygame.K_2: 1, pygame.K_3: 2}
         if evento.type == pygame.KEYDOWN and evento.key in mapa:
             idx = mapa[evento.key]
             if idx < len(self.opcoes):
-                upg = self.opcoes[idx]
-                self._aplicar(upg, jogador)
-                if upg["unico"]:
-                    self._upgrades_adquiridos.add(upg["id"])
-                self.ativo = False
-                return True
+                return self._escolher(idx, jogador)
+
+        # ── Mouse: hover ──────────────────────────────────────────────
+        if evento.type == pygame.MOUSEMOTION:
+            self._selecionado = -1
+            for i, rect in enumerate(self._card_rects):
+                if rect.collidepoint(evento.pos):
+                    self._selecionado = i
+                    break
+
+        # ── Mouse: clique ─────────────────────────────────────────────
+        if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+            for i, rect in enumerate(self._card_rects):
+                if rect.collidepoint(evento.pos):
+                    return self._escolher(i, jogador)
+
         return False
+
+    def _escolher(self, idx: int, jogador) -> bool:
+        """Aplica o upgrade de índice idx e fecha o menu."""
+        if idx >= len(self.opcoes):
+            return False
+        upg = self.opcoes[idx]
+        self._aplicar(upg, jogador)
+        if upg["unico"]:
+            self._upgrades_adquiridos.add(upg["id"])
+        self.ativo        = False
+        self._selecionado = -1
+        return True
 
     def _aplicar(self, upgrade, jogador):
         uid = upgrade["id"]
@@ -206,6 +231,8 @@ class MenuUpgrade:
             jogador.dano_bala += 2
         elif uid == "vampirismo":
             jogador.vampirismo = True
+        elif uid == "bala_perfurante":
+            jogador.bala_perfurante = True
         elif uid == "ricochet":
             jogador.bala_ricochet = True
         elif uid == "aura_dano":
@@ -237,7 +264,7 @@ class MenuUpgrade:
         titulo = self.fonte_t.render("✦  LEVEL UP!  ✦", True, AMARELO)
         superficie.blit(titulo, titulo.get_rect(center=(self.largura // 2, self.altura // 2 - 170)))
 
-        sub = self.fonte_d.render("Escolha um upgrade — teclas 1 / 2 / 3", True, CINZA)
+        sub = self.fonte_d.render("Escolha um upgrade — teclas 1 / 2 / 3  ou  clique no card", True, CINZA)
         superficie.blit(sub, sub.get_rect(center=(self.largura // 2, self.altura // 2 - 120)))
 
         card_w, card_h = 310, 130
@@ -248,21 +275,38 @@ class MenuUpgrade:
 
         piscando = (pygame.time.get_ticks() // 400) % 2 == 0
 
+        # Reconstrói cache de rects para hit-test do mouse
+        self._card_rects = []
+
         for i, upg in enumerate(self.opcoes):
             cx   = start_x + i * (card_w + gap)
             rect = pygame.Rect(cx, cy, card_w, card_h)
+            self._card_rects.append(rect)
             cor  = upg.get("cor", BRANCO)
 
-            # Sombra do card
-            sombra_r = pygame.Rect(cx + 4, cy + 4, card_w, card_h)
+            hover = (i == self._selecionado)
+
+            # Sombra do card (mais intensa com hover)
+            sombra_r = pygame.Rect(cx + (6 if hover else 4), cy + (6 if hover else 4), card_w, card_h)
             pygame.draw.rect(superficie, (10, 10, 15), sombra_r, border_radius=12)
 
-            # Fundo do card
-            pygame.draw.rect(superficie, (22, 22, 32), rect, border_radius=12)
+            # Fundo do card (levemente mais claro com hover)
+            cor_fundo = (35, 35, 50) if hover else (22, 22, 32)
+            pygame.draw.rect(superficie, cor_fundo, rect, border_radius=12)
 
-            # Borda colorida por categoria (pisca)
-            cor_bd = cor if piscando else (50, 50, 60)
-            pygame.draw.rect(superficie, cor_bd, rect, width=2, border_radius=12)
+            # Borda colorida — pisca normalmente, fica sólida e mais grossa com hover
+            if hover:
+                cor_bd = cor
+                espessura = 3
+                # Glow externo
+                glow_r = rect.inflate(6, 6)
+                glow_s = pygame.Surface((glow_r.width, glow_r.height), pygame.SRCALPHA)
+                pygame.draw.rect(glow_s, (*cor, 60), (0, 0, glow_r.width, glow_r.height), border_radius=15)
+                superficie.blit(glow_s, glow_r.topleft)
+            else:
+                cor_bd = cor if piscando else (50, 50, 60)
+                espessura = 2
+            pygame.draw.rect(superficie, cor_bd, rect, width=espessura, border_radius=12)
 
             # Indicador de upgrade único
             if upg.get("unico"):
@@ -289,3 +333,13 @@ class MenuUpgrade:
             pygame.draw.rect(superficie, cor,
                              (cx + 12, cy + card_h - 8, card_w - 24, 4),
                              border_radius=2)
+
+            # Indicador "CLIQUE" pulsante quando hover
+            if hover:
+                pulso = abs((pygame.time.get_ticks() % 600) - 300) / 300.0
+                alpha_clique = int(160 + 95 * pulso)
+                clique_txt = self.fonte_d.render("▶  CLIQUE PARA ESCOLHER  ◀", True, cor)
+                clique_txt.set_alpha(alpha_clique)
+                superficie.blit(clique_txt,
+                                clique_txt.get_rect(centerx=cx + card_w // 2,
+                                                    y=cy + card_h + 10))

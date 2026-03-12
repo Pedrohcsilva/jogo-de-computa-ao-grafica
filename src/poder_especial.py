@@ -118,7 +118,8 @@ class GerenciadorPoderEspecial:
             return None
 
         self._poder_atual = chave
-        self._cooldown_fim = agora + COOLDOWN_MS
+        mult_cd = getattr(jogador, "cooldown_poder_mult", 1.0)
+        self._cooldown_fim = agora + int(COOLDOWN_MS * mult_cd)
 
         if info["dur_ms"] > 0:
             self._efeito_fim = agora + info["dur_ms"]

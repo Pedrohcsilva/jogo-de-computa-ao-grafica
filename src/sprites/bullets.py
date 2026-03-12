@@ -56,6 +56,33 @@ class BalaBase(pygame.sprite.Sprite):
         if self.tempo_vida <= 0:
             self.kill()
 
+    def aplicar_perfurante(self):
+        """Chamado quando acerta inimigo com upgrade perfurante.
+        Decrementa contador de penetrações; mata a bala quando esgota."""
+        if not hasattr(self, '_penetracoes_restantes'):
+            return False  # não tem upgrade
+        self._penetracoes_restantes -= 1
+        if self._penetracoes_restantes <= 0:
+            self.kill()
+        return True  # bala continua viva por enquanto
+
+    def tentar_ricochet(self, inimigos, inimigo_acertado):
+        """Redireciona para o inimigo mais próximo (exceto o acertado).
+        Retorna True se ricocheteou, False se não havia alvo."""
+        if not getattr(self, '_tem_ricochet', False) or getattr(self, '_ricocheteou', False):
+            return False
+        alvos = [i for i in inimigos if i is not inimigo_acertado and i.alive()]
+        if not alvos:
+            return False
+        mais_proximo = min(alvos, key=lambda i: (i.pos - self.pos).length())
+        nova_dir = mais_proximo.pos - self.pos
+        if nova_dir.length() > 0:
+            self.dir = nova_dir.normalize()
+            self._ricocheteou = True
+            self.tempo_vida = max(self.tempo_vida, 60)  # garante alcance para ricochet
+            return True
+        return False
+
 
 # ── Pistola (default) ─────────────────────────────────────────────────
 class Bala(BalaBase):

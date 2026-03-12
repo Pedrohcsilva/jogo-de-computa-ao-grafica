@@ -218,13 +218,14 @@ class InimigoTank(InimigoBase):
 
 class InimigoAtirador(InimigoBase):
     """Roxo: criatura biomecânica flutuante — olho central com tentáculos de energia."""
-    def __init__(self, pos_jogador, vel_base, hp=None):
+    def __init__(self, pos_jogador, vel_base, hp=None, cadencia_ms=2000, dano_tiro=12):
         if hp is None:
             hp = 30
         super().__init__(pos_jogador, vel_base * 0.7,
                          hp=hp, cor=(170, 40, 255), tamanho=(34, 34), xp_valor=20)
-        self.ultimo_tiro = pygame.time.get_ticks()
-        self.cadencia    = 2000
+        self.ultimo_tiro  = pygame.time.get_ticks()
+        self.cadencia     = cadencia_ms   # recebe da dificuldade
+        self.dano_tiro    = dano_tiro     # recebe da dificuldade
 
     def _desenhar_forma(self, w, h):
         """Olho flutuante com tentáculos — criatura biomecânica de ataque à distância."""
@@ -283,11 +284,11 @@ class InimigoAtirador(InimigoBase):
         if agora - self.ultimo_tiro > self.cadencia:
             self.ultimo_tiro = agora
             if distancia > 0:
-                # ─── CORRETO: deposita na lista em vez de retornar True ───
                 lista_disparos.append({
-                    "pos": pygame.math.Vector2(self.pos),
-                    "dir": distancia_vetor.normalize(),
+                    "pos":  pygame.math.Vector2(self.pos),
+                    "dir":  distancia_vetor.normalize(),
                     "tipo": "inimigo",
+                    "dano": self.dano_tiro,   # dano escalado pela dificuldade
                 })
 
         # Hit flash + rotação em direção ao jogador

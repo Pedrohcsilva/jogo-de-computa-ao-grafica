@@ -414,6 +414,11 @@ class Jogador(pygame.sprite.Sprite):
                 perp   = pygame.math.Vector2(-dir_base.y, dir_base.x) * 8
                 origem = pygame.math.Vector2(self.pos) + perp
                 disparos.append((dir_base, "metralhadora", origem))
+            # carta_cano_quente: +4 projéteis em cone mais aberto
+            if getattr(self, "carta_cano_quente", False):
+                for ang in (-14, -7, 7, 14):
+                    disparos.append((dir_base.rotate(ang), "metralhadora",
+                                     pygame.math.Vector2(self.pos)))
 
         else:  # Pistola
             disparos.append((dir_base, "pistola", pygame.math.Vector2(self.pos)))

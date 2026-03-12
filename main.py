@@ -32,6 +32,9 @@ from src.ui_components import BarraHP, BarraProgressao, ContadorTexto, PainelInf
 from src.difficulty    import BalanceadorDificuldade
 
 from src.sprites.player  import Jogador
+from src.colisao_manager import ColisaoManager
+from src.carta_fase     import CartaFaseMenu
+from src.spawn_manager   import SpawnManager
 from src.sprites.enemies import (InimigoBase, InimigoRapido, InimigoTank,
                                   InimigoAtirador, InimigoViral,
                                   InimigoNecromante, InimigoExplosivo)
@@ -78,9 +81,13 @@ class Game:
         self._poder_aviso_timer = 0
         self._poder_aviso_nome  = ""
 
-        self.rodando    = True
+        # Managers de colisão e spawn (instanciados após reset_total)
+        self.rodando      = True
         self._morte_timer = 0
         self.reset_total()
+        self._colisao     = ColisaoManager(self)
+        self._spawn       = SpawnManager(self)
+        self.carta_fase   = CartaFaseMenu(LARGURA, ALTURA)
 
     # ═══════════════════════════════════════════════════════════════
     #  RESET
@@ -211,6 +218,10 @@ class Game:
         self.dificuldade.atualizar_fase(1)
         self.reset_fase()
         self.ondas.iniciar_fase(self.fase)
+        # Reinicia música do início (fase 1)
+        if hasattr(self, 'som'):
+            self.som.atualizar_musica_fase(1)
+            self.som.retomar_musica()
         # Cronômetro da run — ms acumulados somente quando jogando
         self._tempo_jogando_ms  = 0
         self._ultimo_tick_ms    = pygame.time.get_ticks()
@@ -282,6 +293,7 @@ class Game:
                     if self.estado == "jogando":
                         self.estado = "pausado"
                         self.menu_pausa.mostrar()
+                        self.som.pausar_musica()
                     elif self.estado == "pausado":
                         self.estado = "jogando"
                         self.menu_pausa.esconder()
@@ -304,6 +316,14 @@ class Game:
                 if evento.key == pygame.K_q:
                     self.rodando = False
 
+            # Carta de fase (recompensa entre fases)
+            if self.carta_fase.ativo:
+                if self.carta_fase.processar_evento(evento, self.player):
+                    # Carta escolhida: agora inicia as ondas da nova fase
+                    self.ondas.iniciar_fase(self.fase)
+                    self.particulas.nivel_up_burst(self.player.pos)
+                    self.camera.adicionar_shake(SHAKE_LEVEL_UP)
+
             # Menu de upgrade captura seus próprios eventos
             if self.menu_up.ativo:
                 fechou = self.menu_up.processar_evento(evento, self.player)
@@ -318,6 +338,7 @@ class Game:
                 if acao == "continuar":
                     self.estado = "jogando"
                     self.menu_pausa.esconder()
+                    self.som.retomar_musica()
                 elif acao == "reiniciar":
                     self.estado = "jogando"
                     self.menu_pausa.esconder()
@@ -330,6 +351,10 @@ class Game:
                     self.menu.ativo = True
                 elif acao == "sair":
                     self.rodando = False
+                elif acao == "volume_changed":
+                    # Aplica volume imediatamente ao GerenciadorSom
+                    self.som.set_volume_sfx(self.menu_pausa.volume_sfx)
+                    self.som.set_volume_musica(self.menu_pausa.volume_musica)
 
             # Spawn legado removido — o GerenciadorOndas controla os spawns agora
 
@@ -382,7 +407,7 @@ class Game:
             self.boss_intro.update()
             # Momento exato de spawnar: cria o boss quando a intro sinaliza
             if self.boss_intro.pronto_para_spawnar():
-                self._spawnar_boss()
+                self._spawn.spawnar_boss()
             self.camera.update(self.player.pos, LARGURA, ALTURA)
             return  # congela toda a física durante a cinematica
 
@@ -396,6 +421,12 @@ class Game:
             self.camera.update(self.player.pos, LARGURA, ALTURA)
             if self._morte_timer <= 0:
                 self.estado = "game_over"
+            return
+
+        # ── Carta de Fase (pausa o jogo enquanto ativa) ─────────────
+        if self.carta_fase.ativo:
+            self.carta_fase.atualizar()
+            self.camera.update(self.player.pos, LARGURA, ALTURA)
             return
 
         # ── 1. Jogador ──────────────────────────────────────────────
@@ -453,7 +484,7 @@ class Game:
         self.ondas.update(len(self.inimigos))
         tipo_spawn = self.ondas.inimigo_a_spawnar()
         if tipo_spawn:
-            self._spawnar_inimigo_tipo(tipo_spawn)
+            self._spawn.spawnar_inimigo(tipo_spawn)
 
         # Avança fase quando onda completa
         if self.ondas.completa:
@@ -470,21 +501,22 @@ class Game:
                     self.som.play_fase_completa()
                     self.fase            += 1
                     self.vel_inimigos    = self.dificuldade.get_velocidade_inimigos()
-                    self.dificuldade.atualizar_fase(self.fase)  # atualizar sistema de dificuldade
+                    self.dificuldade.atualizar_fase(self.fase)
+                    self.som.atualizar_musica_fase(self.fase)
                     self.aviso_fase_timer = 120
                     self.camera.adicionar_shake(SHAKE_LEVEL_UP * 0.5)
                     self.particulas.transicao_fase(LARGURA, ALTURA)
                     self._gerar_bio_fase(self.fase)
-                    # Notifica o jogador da nova fase → boneco cresce
                     self.player.atualizar_fase(self.fase)
-                    # Desbloqueia poder especial a cada 2 fases concluídas
                     if (self.fase - 1) % 2 == 0:
                         info = self.poder_esp.desbloquear(self.fase - 1)
                         if info:
                             self._poder_aviso_nome  = f"PODER DESBLOQUEADO: {info['icone']} {info['nome']}"
                             self._poder_aviso_timer = 240
                             self.som.play_power_up()
-                    self.ondas.iniciar_fase(self.fase)
+                    # Carta de fase — jogador escolhe recompensa antes das ondas iniciarem
+                    self.carta_fase.sortear(self.fase - 1)
+                    # ondas.iniciar_fase chamado após carta ser escolhida (_apos_carta_fase)
 
         # ── 2. Tiro do Jogador ──────────────────────────────────────
         if pygame.mouse.get_pressed()[0]:
@@ -573,7 +605,7 @@ class Game:
         self.camera.update(self.player.pos, LARGURA, ALTURA)
 
         # ── 9. Colisões ───────────────────────────────────────────────
-        self.checar_colisoes()
+        self._colisao.checar()
 
     # ── Helpers de criação de balas ───────────────────────────────────
 
@@ -582,22 +614,37 @@ class Game:
         Cria projétil do jogador respeitando dano_bala em TODAS as armas.
         Aplica upgrade bala_larga (projétil 2× maior) quando ativo.
         Overload: dano dobrado enquanto ativo.
+        Aplica bala_perfurante (penetra até 3 inimigos) e ricochet.
         """
         pos   = origem if origem is not None else self.player.pos
         larga = getattr(self.player, "bala_larga", False)
         dano  = self.player.dano_bala
         if getattr(self.player, "_overload_ativo", False):
             dano = int(dano * 2)
+        # Sangue Frio: +30% dano quando HP < 40%
+        if getattr(self.player, "carta_sangue_frio", False):
+            if self.player.hp < self.player.hp_max * 0.40:
+                dano = int(dano * 1.30)
 
         if tipo == "metralhadora":
             tam = (12, 12) if larga else (6, 6)
-            return BalaMetralhadora(pos, direcao, dano=dano, tamanho=tam)
-        if tipo == "shotgun":
+            bala = BalaMetralhadora(pos, direcao, dano=dano, tamanho=tam)
+        elif tipo == "shotgun":
             tam = (18, 18) if larga else (10, 10)
-            return BalaShotgun(pos, direcao, dano=dano, tamanho=tam)
-        # Pistola padrão
-        tam = (16, 16) if larga else (8, 8)
-        return Bala(pos, direcao, AZUL_TIRO, dano=dano, tamanho=tam)
+            bala = BalaShotgun(pos, direcao, dano=dano, tamanho=tam)
+        else:
+            # Pistola padrão
+            tam = (16, 16) if larga else (8, 8)
+            bala = Bala(pos, direcao, AZUL_TIRO, dano=dano, tamanho=tam)
+
+        # Aplicar upgrades de comportamento de bala
+        if getattr(self.player, "bala_perfurante", False):
+            bala._penetracoes_restantes = 3
+        if getattr(self.player, "bala_ricochet", False):
+            bala._tem_ricochet  = True
+            bala._ricocheteou   = False
+
+        return bala
 
     def _processar_disparo_inimigo(self, pedido):
         pos  = pedido["pos"]
@@ -609,6 +656,9 @@ class Game:
             bala = BalaBoss(pos, dir_, cor=cor)
         else:
             bala = BalaInimiga(pos, dir_)
+            # Aplica dano customizado se a dificuldade escalou
+            if "dano" in pedido:
+                bala.dano = pedido["dano"]
 
         self.balas_inimigos.add(bala)
         self.todos_sprites.add(bala)
@@ -621,160 +671,12 @@ class Game:
         """Mantido para compatibilidade; lógica principal agora em GerenciadorOndas."""
         pass
 
-    def _spawnar_inimigo_tipo(self, tipo: str):
-        """Cria um inimigo do tipo dado e adiciona aos grupos."""
-        if self.boss_ativo or self.boss_intro.ativo:
-            return
-        
-        # Mapa de HP base por tipo de inimigo
-        hp_base = {
-            "normal":     20,
-            "rapido":     10,
-            "tank":       50,
-            "atirador":   30,
-            "viral":      22,
-            "necromante": 35,
-            "explosivo":  18,
-        }
-        
-        mapa = {
-            "normal":     InimigoBase,
-            "rapido":     InimigoRapido,
-            "tank":       InimigoTank,
-            "atirador":   InimigoAtirador,
-            "viral":      InimigoViral,
-            "necromante": InimigoNecromante,
-            "explosivo":  InimigoExplosivo,
-        }
-        
-        cls = mapa.get(tipo, InimigoBase)
-        
-        # Aplica scaling de dificuldade ao HP
-        hp_escalado = round(self.dificuldade.get_hp_inimigos(tipo))
-        
-        # Cria inimigo com HP escalado
-        if tipo == "viral":
-            novo = cls(self.player.pos, self.vel_inimigos, eh_fragmento=False, hp=hp_escalado)
-        else:
-            novo = cls(self.player.pos, self.vel_inimigos, hp=hp_escalado)
-        
-        self.inimigos.add(novo)
-        self.todos_sprites.add(novo)
 
-    def _spawnar_boss(self):
-        """Chamado pela BossIntro no momento certo da cinematica."""
-        nivel_boss = self.fase // BOSS_INTERVALO   # fase 5→1, fase 10→2, fase 15→3
-        boss         = Boss(self.player.pos, nivel_boss=nivel_boss)
-        self.boss_ref   = boss
-        self.boss_ativo = True
-        self.grupo_boss.add(boss)
-        self.todos_sprites.add(boss)
 
     # ═══════════════════════════════════════════════════════════════
     #  COLISÕES
     # ═══════════════════════════════════════════════════════════════
 
-    def checar_colisoes(self):
-        # ── 1. Balas do player → inimigos ───────────────────────────
-        hits = pygame.sprite.groupcollide(self.inimigos, self.balas_player, False, True)
-        for inimigo, balas_acertadas in hits.items():
-            dano_total = 0
-            for bala in balas_acertadas:
-                inimigo.sofrer_dano(bala.dano)
-                dano_total += bala.dano
-                self.particulas.hit_sparks(inimigo.pos)
-                self.particulas.sangue(inimigo.pos, quantidade=6)
-
-            critico = dano_total >= 20
-            self.nums_dano.adicionar(inimigo.pos, dano_total, critico=critico)
-            self.som.play_hit_inimigo()
-
-            if inimigo.hp <= 0:
-                self.som.play_morte_inimigo()
-                self._matar_inimigo(inimigo)
-                # Vampirismo: cura 2 HP por kill
-                if getattr(self.player, "vampirismo", False):
-                    self.player.hp = min(self.player.hp_max, self.player.hp + 2)
-
-        # ── 2. Balas do player → Boss ────────────────────────────────
-        if self.boss_ativo and self.boss_ref:
-            for bala in list(self.balas_player):
-                if self.boss_ref.rect.colliderect(bala.rect):
-                    self.boss_ref.sofrer_dano(bala.dano)
-                    bala.kill()
-                    self.particulas.hit_sparks(self.boss_ref.pos)
-                    self.camera.adicionar_shake(SHAKE_ACERTA_BOSS)
-                    self.nums_dano.adicionar(self.boss_ref.pos, bala.dano, critico=True)
-                    self.som.play_boss_hit()
-
-                    if self.boss_ref.hp <= 0:
-                        self.som.play_boss_morte()
-                        self._matar_boss()
-                        break
-
-        # ── 3. Inimigos → Jogador (contato) ─────────────────────────
-        inimigos_tocando = pygame.sprite.spritecollide(self.player, self.inimigos, False)
-        for ini in inimigos_tocando:
-            if getattr(self.player, "_escudo_ativo", False):
-                ini.sofrer_dano(40)
-                if ini.hp <= 0:
-                    self._matar_inimigo(ini)
-                self.camera.adicionar_shake(0.3)
-            elif getattr(self.player, "escudo_passivo", False) and getattr(self.player, "escudo_pronto", False):
-                # Escudo passivo absorve o hit
-                self.player.escudo_pronto   = False
-                self.player.escudo_cd_atual = 0
-                ini.kill()
-                self.particulas.hit_sparks(self.player.pos)
-                self.camera.adicionar_shake(0.3)
-            else:
-                ini.kill()
-                dano = 20
-                self.player.sofrer_dano(dano)
-                if not self.player.esta_invencivel():
-                    self.nums_dano.adicionar(self.player.pos, dano, eh_jogador=True)
-                    self.score.registrar_dano()
-                    self.som.play_dano_jogador()
-                self.camera.adicionar_shake(SHAKE_CONTATO_INIMIGO)
-                self._verificar_morte_jogador()
-
-        # ── 4. Balas inimigas → Jogador ──────────────────────────────
-        for bala in list(self.balas_inimigos):
-            if self.player.rect.colliderect(bala.rect):
-                dano = bala.dano
-                if getattr(self.player, "escudo_passivo", False) and getattr(self.player, "escudo_pronto", False):
-                    self.player.escudo_pronto   = False
-                    self.player.escudo_cd_atual = 0
-                    self.particulas.hit_sparks(self.player.pos)
-                    bala.kill()
-                    continue
-                self.player.sofrer_dano(dano)
-                if not self.player.esta_invencivel():
-                    self.nums_dano.adicionar(self.player.pos, dano, eh_jogador=True)
-                    self.score.registrar_dano()
-                self.camera.adicionar_shake(SHAKE_TIRO_INIMIGO)
-                bala.kill()
-                self._verificar_morte_jogador()
-
-        # ── 5. Coleta de itens ───────────────────────────────────────
-        item = pygame.sprite.spritecollideany(self.player, self.itens_chao)
-        if item:
-            self.player.tipo_arma = item.tipo
-            self.player.cadencia  = (CADENCIA_METRALHADORA
-                                     if item.tipo == "Metralhadora"
-                                     else CADENCIA_SHOTGUN)
-            item.kill()
-            self.som.play_power_up()  # som de coleta de arma
-            self.particulas.nivel_up_burst(self.player.pos)
-
-        # ── 6. Coleta de XP ──────────────────────────────────────────
-        gemas_coletadas = pygame.sprite.spritecollide(self.player, self.xp_gems, True)
-        if gemas_coletadas:
-            self.som.play_coleta_xp()
-        for gema in gemas_coletadas:
-            self.player.xp += gema.valor
-            if self.player.xp >= self.player.xp_proximo_nivel:
-                self._level_up()
 
     def _matar_inimigo(self, inimigo):
         self.particulas.explosao(inimigo.pos, inimigo.cor, quantidade=20)
@@ -806,12 +708,29 @@ class Game:
         self.xp_gems.add(gema)
         self.todos_sprites.add(gema)
 
-        # Drop de arma (15% de chance)
-        if random.random() < 0.15:
+        # Drop de arma (15% base, 40% com upgrade drop_arma)
+        chance_drop = 0.40 if getattr(self.player, "drop_arma_bonus", False) else 0.15
+        if random.random() < chance_drop:
             tipo = random.choice(["Metralhadora", "Shotgun"])
             item = ItemArma(inimigo.pos, tipo)
             self.itens_chao.add(item)
             self.todos_sprites.add(item)
+
+        # Necronomicon: a cada 10 kills emite rajada de projéteis fantasma
+        if getattr(self.player, "carta_necronomico", False):
+            self._necro_contador = getattr(self, "_necro_contador", 0) + 1
+            if self._necro_contador >= 10:
+                self._necro_contador = 0
+                for ang in range(0, 360, 30):
+                    dir_n = pygame.math.Vector2(
+                        math.cos(math.radians(ang)),
+                        math.sin(math.radians(ang))
+                    )
+                    b = Bala(inimigo.pos, dir_n, cor=(160, 0, 200), dano=25, vida=90)
+                    self.balas_player.add(b)
+                    self.todos_sprites.add(b)
+                self.particulas.explosao(inimigo.pos, (160, 0, 200), quantidade=20, raio_max=5)
+                self.som.play_power_up()
 
         inimigo.kill()
 
@@ -834,10 +753,12 @@ class Game:
             self.estado = "vitoria"
             self.som.play_fase_completa()
         else:
-            # Continua o jogo: inicia as ondas da próxima fase
+            # Continua o jogo: carta especial de fase (boss concluído)
             self._gerar_bio_fase(min(self.fase, len(self._BIO_PALETAS)))
-            self.ondas.iniciar_fase(self.fase)
             self.dificuldade.atualizar_fase(self.fase)
+            self.som.atualizar_musica_fase(self.fase)
+            self.carta_fase.sortear(self.fase - 1)
+            # ondas.iniciar_fase chamado após carta ser escolhida
 
     def _verificar_morte_jogador(self):
         if self.player.hp <= 0:
@@ -851,7 +772,8 @@ class Game:
             if self.vidas > 0:
                 self.reset_fase()
             else:
-                self.estado = "morrendo"   # novo estado intermediário
+                self.estado = "morrendo"
+                self.som.pausar_musica()   # para a música na morte
 
     def _level_up(self):
         self.player.nivel            += 1
@@ -957,6 +879,10 @@ class Game:
                 self.menu_up.desenhar(self.tela)
             else:
                 self.menu_pausa.desenhar(self.tela)
+
+        # Carta de fase sobreposta (aparece sobre o jogo pausado)
+        if self.carta_fase.ativo:
+            self.carta_fase.desenhar(self.tela)
 
         pygame.display.flip()
 
