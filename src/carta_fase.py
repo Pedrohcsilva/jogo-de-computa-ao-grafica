@@ -49,8 +49,10 @@ CARTAS = [
         "desc": "Balas atravessam\naté 5 inimigos",
         "cat": "SANGUE", "cor": (180, 20, 60), "icone": "🩸",
         "unica": True,
-        "efeito": lambda p: setattr(p, "bala_perfurante", True) or
-                             setattr(p, "_penetracoes_restantes_base", 5),
+        "efeito": lambda p: (
+            setattr(p, "bala_perfurante", True),
+            setattr(p, "_penetracoes_carta", 5),
+        ),
     },
     {
         "id": "carta_executar",
@@ -95,7 +97,11 @@ CARTAS = [
         "desc": "Regenera 3 HP/s\nautonamente",
         "cat": "FERRO", "cor": (20, 160, 100), "icone": "🛡",
         "unica": True,
-        "efeito": lambda p: setattr(p, "regen_hp", getattr(p, "regen_hp", 0) + 3),
+        "efeito": lambda p: (
+            setattr(p, "regen_ativo", True),
+            setattr(p, "regen_timer", 0),
+            setattr(p, "regen_valor", getattr(p, "regen_valor", 0) + 3),
+        ),
     },
     {
         "id": "carta_escudo_duplo",
@@ -103,8 +109,12 @@ CARTAS = [
         "desc": "Escudo passivo\nrecarga 50% mais\nrápido",
         "cat": "FERRO", "cor": (60, 140, 255), "icone": "🛡",
         "unica": True,
-        "efeito": lambda p: setattr(p, "escudo_passivo", True) or
-                             setattr(p, "carta_escudo_rapido", True),
+        "efeito": lambda p: (
+            setattr(p, "escudo_passivo", True),
+            setattr(p, "escudo_cd_max",  max(200, int(getattr(p, "escudo_cd_max", 900) * 0.5))),
+            setattr(p, "escudo_cd_atual", getattr(p, "escudo_cd_atual", 0)),
+            setattr(p, "escudo_pronto",  getattr(p, "escudo_pronto", True)),
+        ),
     },
     {
         "id": "carta_cura_kill",
@@ -123,7 +133,7 @@ CARTAS = [
         "desc": "+60% duração\nde invencibilidade",
         "cat": "FERRO", "cor": (100, 100, 200), "icone": "🛡",
         "unica": True,
-        "efeito": lambda p: setattr(p, "iframe_longo", True),
+        "efeito": lambda p: setattr(p, "IFRAME_DURACAO", int(p.IFRAME_DURACAO * 1.6)),
     },
 
     # ── ⚡ ÉTER (utility) ─────────────────────────────────────────────
@@ -133,7 +143,10 @@ CARTAS = [
         "desc": "Velocidade +3\nDash mais rápido",
         "cat": "ÉTER", "cor": (180, 220, 40), "icone": "⚡",
         "unica": False,
-        "efeito": lambda p: setattr(p, "velocidade", p.velocidade + 3),
+        "efeito": lambda p: (
+            setattr(p, "velocidade", p.velocidade + 3),
+            setattr(p, "_vel_base_upgrades", p.velocidade + 3),
+        ),
     },
     {
         "id": "carta_magnetismo_plus",
@@ -191,6 +204,7 @@ CARTAS = [
         "cat": "MALDIÇÃO", "cor": (120, 0, 200), "icone": "☠",
         "unica": True,
         "efeito": lambda p: (
+            setattr(p, "_vel_base_upgrades", p.velocidade * 2),
             setattr(p, "velocidade", p.velocidade * 2),
             setattr(p, "hp",        1),
             setattr(p, "hp_max",    1),

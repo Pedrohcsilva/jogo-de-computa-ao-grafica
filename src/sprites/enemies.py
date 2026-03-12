@@ -316,9 +316,11 @@ class InimigoViral(InimigoBase):
         if hp is None:
             hp = 8 if eh_fragmento else 22
         xp      = 6 if eh_fragmento else 18
+        # FIX: define eh_fragmento ANTES do super().__init__ porque
+        # _desenhar_forma() é chamada dentro de __init__ e usa esse atributo
+        self.eh_fragmento = eh_fragmento
         super().__init__(pos_jogador, vel_base * 1.1,
                          hp=hp, cor=(0, 230, 200), tamanho=tamanho, xp_valor=xp)
-        self.eh_fragmento = eh_fragmento
 
     def _desenhar_forma(self, w, h):
         """Célula mitótica — bolha ciano com divisão visível no centro."""
@@ -389,6 +391,7 @@ class InimigoNecromante(InimigoBase):
         self._cura_timer    = pygame.time.get_ticks()
         self._cura_cd_ms    = 4000
         self._cura_pulsando = 0   # frames de flash verde ao curar
+        self._pedido_cura   = False  # FIX: inicializa flag para evitar AttributeError
 
     def _desenhar_forma(self, w, h):
         """Feiticeiro fantasma — capuz cônico com orbes flutuantes."""
@@ -482,7 +485,8 @@ class InimigoExplosivo(InimigoBase):
             hp = 18
         super().__init__(pos_jogador, vel_base * 1.25,
                          hp=hp, cor=(255, 130, 0), tamanho=(28, 28), xp_valor=22)
-        self._explodiu = False
+        self._explodiu        = False
+        self._pedido_explosao = False  # FIX: inicializa flag para evitar AttributeError
 
     def _desenhar_forma(self, w, h):
         """Bomba orgânica — esfera de combustão com veias de plasma."""

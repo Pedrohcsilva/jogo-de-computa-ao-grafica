@@ -126,17 +126,17 @@ class ColisaoManager:
             elif getattr(player, "escudo_passivo", False) and getattr(player, "escudo_pronto", False):
                 player.escudo_pronto   = False
                 player.escudo_cd_atual = 0
-                ini.kill()
+                # FIX: usa _matar_inimigo para conceder XP/drops corretamente
+                g._matar_inimigo(ini)
                 particulas.hit_sparks(player.pos)
                 camera.adicionar_shake(0.3)
-            else:
-                ini.kill()
+            elif not player.esta_invencivel():
+                # FIX: só aplica dano e efeitos quando não há i-frames ativos
                 dano = 20
                 player.sofrer_dano(dano)
-                if not player.esta_invencivel():
-                    nums_dano.adicionar(player.pos, dano, eh_jogador=True)
-                    score.registrar_dano()
-                    som.play_dano_jogador()
+                nums_dano.adicionar(player.pos, dano, eh_jogador=True)
+                score.registrar_dano()
+                som.play_dano_jogador()
                 camera.adicionar_shake(SHAKE_CONTATO_INIMIGO)
                 g._verificar_morte_jogador()
 
@@ -144,19 +144,26 @@ class ColisaoManager:
         for bala in list(g.balas_inimigos):
             if player.rect.colliderect(bala.rect):
                 dano = bala.dano
+                if getattr(player, "_escudo_ativo", False):
+                    # FIX: escudo ativo absorve balas inimigas sem dano
+                    bala.kill()
+                    particulas.hit_sparks(player.pos)
+                    continue
                 if getattr(player, "escudo_passivo", False) and getattr(player, "escudo_pronto", False):
                     player.escudo_pronto   = False
                     player.escudo_cd_atual = 0
                     particulas.hit_sparks(player.pos)
                     bala.kill()
                     continue
-                player.sofrer_dano(dano)
                 if not player.esta_invencivel():
+                    # FIX: só aplica dano e efeitos quando não há i-frames
+                    player.sofrer_dano(dano)
                     nums_dano.adicionar(player.pos, dano, eh_jogador=True)
                     score.registrar_dano()
-                camera.adicionar_shake(SHAKE_TIRO_INIMIGO)
+                    som.play_dano_jogador()
+                    camera.adicionar_shake(SHAKE_TIRO_INIMIGO)
+                    g._verificar_morte_jogador()
                 bala.kill()
-                g._verificar_morte_jogador()
 
         # ── 5. Coleta de itens ────────────────────────────────────────
         item = pygame.sprite.spritecollideany(player, g.itens_chao)

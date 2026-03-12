@@ -50,6 +50,7 @@ class Jogador(pygame.sprite.Sprite):
         self.xp               = 0
         self.xp_proximo_nivel = XP_BASE_LEVEL
         self.velocidade       = PLAYER_VEL
+        self._vel_base_upgrades = PLAYER_VEL  # FIX: rastreia velocidade base com upgrades
 
         # Aceleração suave: vel_atual interpola em direção à vel_alvo.
         # Dá "peso" ao movimento sem sacrificar responsividade.

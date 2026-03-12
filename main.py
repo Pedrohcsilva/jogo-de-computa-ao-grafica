@@ -304,7 +304,7 @@ class Game:
                     self.reset_total()
 
                 # ESPAÇO: ativa poder especial (somente quando jogando e sem menus abertos)
-                if evento.key == pygame.K_SPACE and self.estado == "jogando" and not self.menu_up.ativo and not self.menu_pausa.visivel:
+                if evento.key == pygame.K_SPACE and self.estado == "jogando" and not self.menu_up.ativo and not self.menu_pausa.visivel and not self.boss_intro.ativo:
                     nome = self.poder_esp.ativar(
                         self.player, self.inimigos,
                         self.particulas, self.camera)
@@ -377,7 +377,7 @@ class Game:
                 self.menu_pausa.esconder()
         
         # Processar poder pelo controlador
-        if entrada["poder"] and self.estado == "jogando":
+        if entrada["poder"] and self.estado == "jogando" and not self.boss_intro.ativo:
             nome = self.poder_esp.ativar(
                 self.player, self.inimigos,
                 self.particulas, self.camera)
@@ -434,12 +434,14 @@ class Game:
         self.poder_esp.update(self.player)
 
         # ── Efeitos dos poderes especiais ativos ─────────────────────
+        # FIX: usa velocidade base do player (que inclui upgrades) em vez de PLAYER_VEL fixo
+        vel_base = getattr(self.player, "_vel_base_upgrades", PLAYER_VEL)
         if getattr(self.player, "_frenesim_ativo", False):
-            self.player.velocidade = PLAYER_VEL * 1.8
+            self.player.velocidade = vel_base * 1.8
         elif getattr(self.player, "_overload_ativo", False):
-            self.player.velocidade = PLAYER_VEL * 1.5
+            self.player.velocidade = vel_base * 1.5
         else:
-            self.player.velocidade = PLAYER_VEL
+            self.player.velocidade = vel_base
 
         # I-frames garantidos enquanto escudo ativo
         if getattr(self.player, "_escudo_ativo", False):
@@ -639,7 +641,7 @@ class Game:
 
         # Aplicar upgrades de comportamento de bala
         if getattr(self.player, "bala_perfurante", False):
-            bala._penetracoes_restantes = 3
+            bala._penetracoes_restantes = getattr(self.player, "_penetracoes_carta", 3)
         if getattr(self.player, "bala_ricochet", False):
             bala._tem_ricochet  = True
             bala._ricocheteou   = False

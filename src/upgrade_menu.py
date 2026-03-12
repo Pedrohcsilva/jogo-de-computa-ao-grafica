@@ -196,8 +196,10 @@ class MenuUpgrade:
 
         if uid == "velocidade":
             jogador.velocidade += 1
+            jogador._vel_base_upgrades = jogador.velocidade
         elif uid == "velocidade_grande":
             jogador.velocidade += 2
+            jogador._vel_base_upgrades = jogador.velocidade
         elif uid == "cadencia":
             jogador.cadencia = max(50, int(jogador.cadencia * 0.85))
         elif uid == "cadencia_grande":

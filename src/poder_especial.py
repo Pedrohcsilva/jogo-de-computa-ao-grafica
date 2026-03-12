@@ -118,7 +118,7 @@ class GerenciadorPoderEspecial:
             return None
 
         self._poder_atual = chave
-        mult_cd = getattr(jogador, "cooldown_poder_mult", 1.0)
+        mult_cd = getattr(player, "cooldown_poder_mult", 1.0)
         self._cooldown_fim = agora + int(COOLDOWN_MS * mult_cd)
 
         if info["dur_ms"] > 0:
@@ -147,8 +147,9 @@ class GerenciadorPoderEspecial:
         """Deve ser chamado todo frame para desativar efeitos expirados."""
         agora = pygame.time.get_ticks()
 
-        if agora >= self._efeito_fim:
-            # Garante limpeza dos flags
+        # Só desativa se havia um efeito com duração real ativo e ele expirou
+        if self._efeito_fim > 0 and agora >= self._efeito_fim:
+            # Garante limpeza dos flags apenas quando o efeito acabou de expirar
             if getattr(player, "_frenesim_ativo", False):
                 player._frenesim_ativo = False
             if getattr(player, "_escudo_ativo", False):
