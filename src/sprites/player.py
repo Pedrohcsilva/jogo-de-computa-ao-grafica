@@ -278,13 +278,19 @@ class Jogador(pygame.sprite.Sprite):
         # Tick de animação para pulso do núcleo
         self._tick = getattr(self, "_tick", 0) + 1
 
-        teclas  = pygame.key.get_pressed()
-        direcao = pygame.math.Vector2(0, 0)
+        # Entrada de movimento: pode vir de controline.atualizar() ou teclado
+        # Se o atributo _entrada_movimento foi setado, usa dele; senão, processa teclado
+        if hasattr(self, '_entrada_movimento') and self._entrada_movimento:
+            direcao = self._entrada_movimento
+        else:
+            # Fallback para teclado (retrocompatibilidade)
+            teclas  = pygame.key.get_pressed()
+            direcao = pygame.math.Vector2(0, 0)
 
-        if teclas[pygame.K_w]: direcao.y -= 1
-        if teclas[pygame.K_s]: direcao.y += 1
-        if teclas[pygame.K_a]: direcao.x -= 1
-        if teclas[pygame.K_d]: direcao.x += 1
+            if teclas[pygame.K_w]: direcao.y -= 1
+            if teclas[pygame.K_s]: direcao.y += 1
+            if teclas[pygame.K_a]: direcao.x -= 1
+            if teclas[pygame.K_d]: direcao.x += 1
 
         vel_alvo = direcao.normalize() * self.velocidade if direcao.length() > 0 \
                    else pygame.math.Vector2(0, 0)

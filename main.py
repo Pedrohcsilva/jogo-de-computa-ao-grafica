@@ -26,6 +26,7 @@ from src.poder_especial import GerenciadorPoderEspecial
 from src.sound         import GerenciadorSom
 from src.menu_principal import MenuPrincipal
 from src.persistence   import SistemaPeristencia
+from src.controls      import ControladorEntrada
 
 from src.sprites.player  import Jogador
 from src.sprites.enemies import (InimigoBase, InimigoRapido, InimigoTank,
@@ -60,6 +61,7 @@ class Game:
         self.poder_esp     = GerenciadorPoderEspecial()
         self.som           = GerenciadorSom()
         self.menu          = MenuPrincipal(LARGURA, ALTURA)   # ← tela de título
+        self.controles     = ControladorEntrada()  # ← controle (teclado + gamepad)
         self._poder_aviso_timer = 0
         self._poder_aviso_nome  = ""
 
@@ -244,7 +246,10 @@ class Game:
     # ═══════════════════════════════════════════════════════════════
 
     def eventos(self):
-        for evento in pygame.event.get():
+        # Coletar eventos para o frame
+        lista_eventos = list(pygame.event.get())
+        
+        for evento in lista_eventos:
             if evento.type == pygame.QUIT:
                 self.rodando = False
 
@@ -305,6 +310,31 @@ class Game:
                     self.camera.adicionar_shake(SHAKE_LEVEL_UP)
 
             # Spawn legado removido — o GerenciadorOndas controla os spawns agora
+
+        # ── Processar entrada consolidada (teclado + gamepad) ──
+        entrada = self.controles.atualizar(lista_eventos)
+        
+        # Passar movimento ao player
+        if entrada["movimento"].length() > 0:
+            self.player._entrada_movimento = entrada["movimento"]
+        else:
+            self.player._entrada_movimento = pygame.math.Vector2(0, 0)
+        
+        # Processar pausa pelo controlador
+        if entrada["pausa"] and not self.menu_up.ativo:
+            if self.estado == "jogando":
+                self.estado = "pausado"
+            elif self.estado == "pausado":
+                self.estado = "jogando"
+        
+        # Processar poder pelo controlador
+        if entrada["poder"] and self.estado == "jogando":
+            nome = self.poder_esp.ativar(
+                self.player, self.inimigos,
+                self.particulas, self.camera)
+            if nome:
+                self._poder_aviso_nome  = f"⚡ {nome} ATIVADO!"
+                self._poder_aviso_timer = 120
 
     # ═══════════════════════════════════════════════════════════════
     #  UPDATE
