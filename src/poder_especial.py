@@ -179,6 +179,8 @@ class GerenciadorPoderEspecial:
             return
 
         info  = self.poder_equipado()
+        if not info:  # Proteção adicional contra None
+            return
         agora = pygame.time.get_ticks()
         cor   = info["cor"]
 

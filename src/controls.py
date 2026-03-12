@@ -128,7 +128,11 @@ class ControladorEntrada:
         if abs(ly) < self.DEADZONE:
             ly = 0
         
-        self.movimento = pygame.math.Vector2(lx, ly)
+        mov_raw = pygame.math.Vector2(lx, ly)
+        # Clamp para nunca exceder comprimento 1 (proteção contra hardware ruidoso)
+        if mov_raw.length() > 1.0:
+            mov_raw = mov_raw.normalize()
+        self.movimento = mov_raw
         
         # Analógico direito — direção de tiro
         rx = self.gamepad.get_axis(2)  # Right stick X

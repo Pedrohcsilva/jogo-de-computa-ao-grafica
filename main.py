@@ -222,7 +222,7 @@ class Game:
             "hp_jogador": self.player.hp,
             "hp_max": self.player.hp_max,
             "arma_equipada": self.player.tipo_arma if hasattr(self.player, 'tipo_arma') else "pistola",
-            "upgrades": list(self.menu_up.upgrades_adquiridos),
+            "upgrades": list(self.menu_up._upgrades_adquiridos),
             "score": self.score.score,
             "combo": self.score.combo,
             "xp_atual": self.player.xp if hasattr(self.player, 'xp') else 0,
@@ -244,14 +244,12 @@ class Game:
         self._gerar_bio_fase(self.fase)
         self.player.hp = dados.get("hp_jogador", self.player.hp_max)
         self.player.hp_max = dados.get("hp_max", HP_MAX)
-        self.menu_up.upgrades_adquiridos = set(dados.get("upgrades", []))
+        self.menu_up._upgrades_adquiridos = set(dados.get("upgrades", []))
         self.score.score = dados.get("score", 0)
         self.score.combo = dados.get("combo", 0)
         
-        # Aplicar upgrades ao jogador se houver
-        if hasattr(self.menu_up, 'upgrades_adquiridos'):
-            for upgrade_id in self.menu_up.upgrades_adquiridos:
-                self.menu_up._aplicar_upgrade(upgrade_id, self.player)
+        # Upgrades são reaplicados quando o jogador pegar level-up normalmente
+        # (não é possível restaurar efeitos de upgrades de estado, apenas metadados)
         
         print(f"✓ Jogo restaurado da Fase {self.fase}")
 
@@ -288,16 +286,13 @@ class Game:
                         self.estado = "jogando"
                         self.menu_pausa.esconder()
 
-                # No pause: ações são processadas pelo menu de pausa agora
-                continue
-
                 # R: reinicia após game over ou vitória
                 if self.estado in ("game_over", "vitoria") and evento.key == pygame.K_r:
                     self.estado = "jogando"
                     self.reset_total()
 
-                # ESPAÇO: ativa poder especial
-                if evento.key == pygame.K_SPACE and self.estado == "jogando":
+                # ESPAÇO: ativa poder especial (somente quando jogando e sem menus abertos)
+                if evento.key == pygame.K_SPACE and self.estado == "jogando" and not self.menu_up.ativo and not self.menu_pausa.visivel:
                     nome = self.poder_esp.ativar(
                         self.player, self.inimigos,
                         self.particulas, self.camera)
@@ -472,6 +467,7 @@ class Game:
             elif not e_fase_boss:
                 # Fase normal: avança
                 if self.fase < META_FASES:
+                    self.som.play_fase_completa()
                     self.fase            += 1
                     self.vel_inimigos    = self.dificuldade.get_velocidade_inimigos()
                     self.dificuldade.atualizar_fase(self.fase)  # atualizar sistema de dificuldade
@@ -487,6 +483,7 @@ class Game:
                         if info:
                             self._poder_aviso_nome  = f"PODER DESBLOQUEADO: {info['icone']} {info['nome']}"
                             self._poder_aviso_timer = 240
+                            self.som.play_power_up()
                     self.ondas.iniciar_fase(self.fase)
 
         # ── 2. Tiro do Jogador ──────────────────────────────────────
@@ -567,6 +564,10 @@ class Game:
         # ── 7. Partículas + Números de Dano ───────────────────────────
         self.particulas.update()
         self.nums_dano.update()
+
+        # ── 7b. Atualizar menus (animações) ──────────────────────────
+        if self.menu_pausa.visivel:
+            self.menu_pausa.atualizar()
 
         # ── 8. Câmera ─────────────────────────────────────────────────
         self.camera.update(self.player.pos, LARGURA, ALTURA)
@@ -718,7 +719,6 @@ class Game:
                 ini.sofrer_dano(40)
                 if ini.hp <= 0:
                     self._matar_inimigo(ini)
-                    ini.kill()
                 self.camera.adicionar_shake(0.3)
             elif getattr(self.player, "escudo_passivo", False) and getattr(self.player, "escudo_pronto", False):
                 # Escudo passivo absorve o hit
@@ -764,9 +764,14 @@ class Game:
                                      if item.tipo == "Metralhadora"
                                      else CADENCIA_SHOTGUN)
             item.kill()
+            self.som.play_power_up()  # som de coleta de arma
+            self.particulas.nivel_up_burst(self.player.pos)
 
         # ── 6. Coleta de XP ──────────────────────────────────────────
-        for gema in pygame.sprite.spritecollide(self.player, self.xp_gems, True):
+        gemas_coletadas = pygame.sprite.spritecollide(self.player, self.xp_gems, True)
+        if gemas_coletadas:
+            self.som.play_coleta_xp()
+        for gema in gemas_coletadas:
             self.player.xp += gema.valor
             if self.player.xp >= self.player.xp_proximo_nivel:
                 self._level_up()
@@ -827,10 +832,12 @@ class Game:
         # Vitória ao matar o boss final (fase 15)
         if self.fase > META_FASES:
             self.estado = "vitoria"
+            self.som.play_fase_completa()
         else:
             # Continua o jogo: inicia as ondas da próxima fase
-            self._gerar_bio_fase(self.fase)
+            self._gerar_bio_fase(min(self.fase, len(self._BIO_PALETAS)))
             self.ondas.iniciar_fase(self.fase)
+            self.dificuldade.atualizar_fase(self.fase)
 
     def _verificar_morte_jogador(self):
         if self.player.hp <= 0:
@@ -916,6 +923,9 @@ class Game:
         # ── HUD ───────────────────────────────────────────────────────
         self._desenhar_hud()
 
+        # ── Borda do mundo (aviso visual de limite) ──────────────────
+        self._desenhar_borda_mundo(offset)
+
         # ── HUD do poder especial ─────────────────────────────────────
         self.poder_esp.desenhar_hud(self.tela)
 
@@ -949,6 +959,28 @@ class Game:
                 self.menu_pausa.desenhar(self.tela)
 
         pygame.display.flip()
+
+    def _desenhar_borda_mundo(self, offset):
+        """Desenha borda vermelha pulsante quando o jogador se aproxima do limite do mundo."""
+        dist = self.player.distancia_borda()
+        if dist <= 0:
+            return
+        alpha = int(dist * 180)
+        pulse = abs(pygame.time.get_ticks() % 600 - 300) / 300.0  # 0→1→0
+        alpha = int(alpha * (0.6 + 0.4 * pulse))
+        borda = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
+        espessura = int(20 + dist * 30)
+        # Bordas nos 4 lados
+        pygame.draw.rect(borda, (255, 50, 50, alpha), (0, 0, LARGURA, espessura))
+        pygame.draw.rect(borda, (255, 50, 50, alpha), (0, ALTURA - espessura, LARGURA, espessura))
+        pygame.draw.rect(borda, (255, 50, 50, alpha), (0, 0, espessura, ALTURA))
+        pygame.draw.rect(borda, (255, 50, 50, alpha), (LARGURA - espessura, 0, espessura, ALTURA))
+        self.tela.blit(borda, (0, 0))
+        # Texto de aviso
+        if dist > 0.5:
+            txt = self.fonte.render("⚠ BORDA DO MUNDO", True, (255, 100, 100))
+            txt.set_alpha(alpha)
+            self.tela.blit(txt, txt.get_rect(center=(LARGURA // 2, 80)))
 
     def _desenhar_grid(self, offset):
         """
@@ -1029,6 +1061,49 @@ class Game:
                     pygame.draw.circle(self.tela, (200, 255, 220),
                                        (px - nr//3, py - nr//3), max(1, nr//4))
 
+    def _desenhar_mini_mapa(self):
+        """Mini-mapa no canto inferior esquerdo mostrando posição do jogador no mundo."""
+        LIMITE = 2000
+        mm_w, mm_h = 120, 120
+        mm_x = 20
+        mm_y = ALTURA - mm_h - 20
+
+        # Fundo semi-transparente
+        surf = pygame.Surface((mm_w, mm_h), pygame.SRCALPHA)
+        surf.fill((0, 0, 0, 120))
+        pygame.draw.rect(surf, (60, 80, 60, 200), (0, 0, mm_w, mm_h), width=1, border_radius=4)
+
+        # Inimigos no mini-mapa
+        for ini in self.inimigos:
+            rx = int((ini.pos.x + LIMITE) / (LIMITE * 2) * mm_w)
+            ry = int((ini.pos.y + LIMITE) / (LIMITE * 2) * mm_h)
+            rx = max(2, min(mm_w - 3, rx))
+            ry = max(2, min(mm_h - 3, ry))
+            pygame.draw.circle(surf, (255, 60, 60), (rx, ry), 2)
+
+        # Boss no mini-mapa
+        if self.boss_ativo and self.boss_ref:
+            bx = int((self.boss_ref.pos.x + LIMITE) / (LIMITE * 2) * mm_w)
+            by = int((self.boss_ref.pos.y + LIMITE) / (LIMITE * 2) * mm_h)
+            bx = max(3, min(mm_w - 4, bx))
+            by = max(3, min(mm_h - 4, by))
+            pygame.draw.circle(surf, (255, 50, 255), (bx, by), 5)
+            pygame.draw.circle(surf, (255, 200, 255), (bx, by), 3)
+
+        # Jogador (sempre no centro do mini-mapa)
+        px = int((self.player.pos.x + LIMITE) / (LIMITE * 2) * mm_w)
+        py = int((self.player.pos.y + LIMITE) / (LIMITE * 2) * mm_h)
+        px = max(4, min(mm_w - 5, px))
+        py = max(4, min(mm_h - 5, py))
+        pygame.draw.circle(surf, (0, 255, 120), (px, py), 4)
+        pygame.draw.circle(surf, (255, 255, 255), (px, py), 2)
+
+        self.tela.blit(surf, (mm_x, mm_y))
+
+        # Label
+        lbl = self.fonte.render("MAPA", True, (100, 140, 100))
+        self.tela.blit(lbl, (mm_x + mm_w // 2 - lbl.get_width() // 2, mm_y - 18))
+
     def _desenhar_hud(self):
         # ── Atualizar componentes de UI ───────────────────────────────
         self.barra_hp.atualizar(self.player.hp, self.player.hp_max)
@@ -1093,6 +1168,9 @@ class Game:
         if self.fase == 1:
             self._desenhar_tutorial()
 
+        # ── Mini-mapa de posição no mundo ────────────────────────────────
+        self._desenhar_mini_mapa()
+
         # ── Teclas de ajuda ───────────────────────────────────────────────
         help_text = "🎮 ESC=Pausa | ESPAÇO=Poder Especial"
         ajuda = self.fonte.render(help_text, True, CINZA)
@@ -1138,73 +1216,56 @@ class Game:
             card.blit(txt_desc,  (10, 22))
             self.tela.blit(card, (base_x, y))
 
-    def _desenhar_pause(self):
-        import math as _math
-        t = pygame.time.get_ticks()
-
-        # Overlay semitransparente
-        overlay = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 175))
-        self.tela.blit(overlay, (0, 0))
-
-        cx = LARGURA // 2
-        cy = ALTURA  // 2
-
-        # Título
-        pulso   = 0.5 + 0.5 * _math.sin(t * 0.004)
-        cor_tit = (int(180 + 75 * pulso), int(180 + 75 * pulso), int(180 + 75 * pulso))
-        titulo  = self.fonte_lg.render("⏸  PAUSADO", True, cor_tit)
-        self.tela.blit(titulo, titulo.get_rect(center=(cx, cy - 170)))
-
-        # Linha divisória
-        pygame.draw.line(self.tela, (60, 80, 60), (cx - 260, cy - 110), (cx + 260, cy - 110), 1)
-
-        # Stats rápidas da sessão atual
-        stats = [
-            ("Fase",    f"{self.fase} / {META_FASES}"),
-            ("Nível",   str(self.player.nivel)),
-            ("HP",      f"{self.player.hp} / {self.player.hp_max}"),
-            ("Score",   f"{self.score.score:,}"),
-            ("Vidas",   str(self.vidas)),
-        ]
-        for i, (label, valor) in enumerate(stats):
-            y = cy - 80 + i * 34
-            lbl = self.fonte.render(label + ":", True, (100, 140, 100))
-            val = self.fonte.render(valor,       True, BRANCO)
-            self.tela.blit(lbl, lbl.get_rect(right=cx - 10, centery=y))
-            self.tela.blit(val, val.get_rect(left=cx + 10,  centery=y))
-
-        # Linha divisória
-        pygame.draw.line(self.tela, (60, 80, 60), (cx - 260, cy + 100), (cx + 260, cy + 100), 1)
-
-        # Opções do menu de pausa
-        opcoes = [
-            ("ESC",  "Continuar jogando"),
-            ("R",    "Reiniciar do zero"),
-            ("M",    "Voltar ao menu principal"),
-            ("Q",    "Sair do jogo"),
-        ]
-        for i, (tecla, desc) in enumerate(opcoes):
-            y = cy + 125 + i * 40
-            t_tecla = self.fonte_md.render(f"[{tecla}]", True, (0, 220, 110))
-            t_desc  = self.fonte_md.render(desc,         True, (180, 200, 180))
-            self.tela.blit(t_tecla, t_tecla.get_rect(right=cx - 15, centery=y))
-            self.tela.blit(t_desc,  t_desc.get_rect( left=cx + 15,  centery=y))
 
     def _desenhar_game_over(self):
+        import math as _math
+        t = pygame.time.get_ticks()
         overlay = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 190))
+        overlay.fill((0, 0, 0, 200))
         self.tela.blit(overlay, (0, 0))
-        go = self.fonte_lg.render("GAME OVER", True, VERMELHO)
-        self.tela.blit(go, go.get_rect(center=(LARGURA // 2, ALTURA // 2 - 60)))
-        info = self.fonte_md.render(
-            f"Fase {self.fase} | Nível {self.player.nivel} | Score: {self.score.score}",
-            True, BRANCO)
-        hi   = self.fonte_md.render(f"HIGHSCORE: {self.score.highscore}", True, AMARELO)
-        self.tela.blit(info, info.get_rect(center=(LARGURA // 2, ALTURA // 2 + 10)))
-        self.tela.blit(hi,   hi.get_rect(center=(LARGURA // 2, ALTURA // 2 + 50)))
-        restart = self.fonte.render("R = Recomeçar   |   Q = Sair", True, CINZA)
-        self.tela.blit(restart, restart.get_rect(center=(LARGURA // 2, ALTURA // 2 + 70)))
+
+        # Título pulsante
+        pulso = 0.5 + 0.5 * _math.sin(t * 0.003)
+        cor_go = (int(200 + 55 * pulso), int(30 + 20 * pulso), int(30 + 20 * pulso))
+        go_sombra = self.fonte_lg.render("GAME OVER", True, (80, 0, 0))
+        go = self.fonte_lg.render("GAME OVER", True, cor_go)
+        rect_go = go.get_rect(center=(LARGURA // 2, ALTURA // 2 - 120))
+        self.tela.blit(go_sombra, (rect_go.x + 5, rect_go.y + 5))
+        self.tela.blit(go, rect_go)
+
+        # Novo recorde badge
+        e_novo_recorde = self.score.score > 0 and self.score.score >= self.score.highscore
+        if e_novo_recorde:
+            nr = self.fonte_md.render("✦ NOVO RECORDE! ✦", True, AMARELO)
+            self.tela.blit(nr, nr.get_rect(center=(LARGURA // 2, ALTURA // 2 - 55)))
+
+        # Linha divisória
+        pygame.draw.line(self.tela, (100, 30, 30),
+                         (LARGURA // 2 - 280, ALTURA // 2 - 30),
+                         (LARGURA // 2 + 280, ALTURA // 2 - 30), 1)
+
+        # Stats em 2 colunas
+        stats = [
+            ("Fase alcançada",     f"{self.fase} / {META_FASES}"),
+            ("Nível do jogador",   str(self.player.nivel)),
+            ("Inimigos mortos",    str(getattr(self, 'inimigos_derrotados', 0))),
+            ("Score final",        f"{self.score.score:,}"),
+            ("Highscore",          f"{self.score.highscore:,}"),
+        ]
+        for i, (lbl, val) in enumerate(stats):
+            y = ALTURA // 2 + i * 36
+            cor_val = AMARELO if (i == 4 and e_novo_recorde) else BRANCO
+            t_lbl = self.fonte.render(lbl + ":", True, (160, 100, 100))
+            t_val = self.fonte_md.render(val, True, cor_val)
+            self.tela.blit(t_lbl, t_lbl.get_rect(right=LARGURA // 2 - 10, centery=y))
+            self.tela.blit(t_val, t_val.get_rect(left=LARGURA // 2 + 10, centery=y))
+
+        pygame.draw.line(self.tela, (100, 30, 30),
+                         (LARGURA // 2 - 280, ALTURA // 2 + 192),
+                         (LARGURA // 2 + 280, ALTURA // 2 + 192), 1)
+
+        restart = self.fonte_md.render("[ R ]  Jogar Novamente      [ Q ]  Sair", True, (200, 180, 180))
+        self.tela.blit(restart, restart.get_rect(center=(LARGURA // 2, ALTURA // 2 + 215)))
 
     def _desenhar_vitoria(self):
         """Tela de vitória épica com estatísticas completas da run."""

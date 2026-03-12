@@ -74,8 +74,12 @@ class BarraHP:
         """Atualiza valores de HP."""
         self.hp = hp_atual
         self.hp_max = hp_maximo
-        # Suavizar o hp atrasado
-        self.hp_delayed += (hp_atual - self.hp_delayed) * 0.1
+        # hp_delayed segue lentamente quando HP cai (efeito Dark Souls)
+        if hp_atual < self.hp_delayed:
+            self.hp_delayed = max(hp_atual, self.hp_delayed - (self.hp_max * 0.003))
+        else:
+            # Quando HP sobe (cura), hp_delayed acompanha imediatamente
+            self.hp_delayed = hp_atual
     
     def desenhar(self, tela: pygame.Surface):
         """Desenha a barra de HP com efeitos."""

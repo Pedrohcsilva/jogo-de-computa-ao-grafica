@@ -296,6 +296,22 @@ class Jogador(pygame.sprite.Sprite):
                    else pygame.math.Vector2(0, 0)
         self._vel_atual += (vel_alvo - self._vel_atual) * self._ACEL
         self.pos        += self._vel_atual
+
+        # ── Limites do mundo: mantém o jogador dentro de um mapa de 4000x4000 ──
+        LIMITE = 2000
+        if self.pos.x < -LIMITE:
+            self.pos.x = -LIMITE
+            self._vel_atual.x = 0
+        elif self.pos.x > LIMITE:
+            self.pos.x = LIMITE
+            self._vel_atual.x = 0
+        if self.pos.y < -LIMITE:
+            self.pos.y = -LIMITE
+            self._vel_atual.y = 0
+        elif self.pos.y > LIMITE:
+            self.pos.y = LIMITE
+            self._vel_atual.y = 0
+
         self.rect.center = self.pos
 
         if self._iframe_timer > 0:
@@ -358,6 +374,14 @@ class Jogador(pygame.sprite.Sprite):
             self.image = pygame.transform.rotate(img_anim, angulo)
 
         self.rect = self.image.get_rect(center=self.pos)
+
+    def distancia_borda(self) -> float:
+        """Retorna fração 0–1 da proximidade à borda do mundo (1=na borda)."""
+        LIMITE = 2000
+        dist_x = min(abs(self.pos.x + LIMITE), abs(self.pos.x - LIMITE))
+        dist_y = min(abs(self.pos.y + LIMITE), abs(self.pos.y - LIMITE))
+        dist_min = min(dist_x, dist_y)
+        return max(0.0, 1.0 - dist_min / 300.0)  # aviso nos últimos 300px
 
     def atirar(self):
         """
